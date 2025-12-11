@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 import logging
+import re
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -182,25 +183,35 @@ def group_syllables_by_time(events, threshold=TIME_THRESHOLD):
     
     for i in range(1, len(events)):
         time, text = events[i]
-        time_diff = time - current_group[-1][0]
         
-        # Gruppiere wenn:
-        # 1. Zeitdifferenz unter Schwellenwert
-        # 2. Text beginnt nicht mit Großbuchstaben (neuer Satz)
-        # 3. Vorheriger Text endet nicht mit Satzzeichen wie . ! ?
+        if not text or not text.strip():
+            continue
+        
+        time_diff = time - current_group[-1][0]
         prev_text = current_group[-1][1].strip()
-        should_group = (
-            time_diff < threshold and
-            not text[0].isupper() if text else False and
-            not prev_text.endswith(('.', '!', '?'))
-        )
+        
+        # Prüfe ob diese Events zusammen gehören
+        should_group = False
+        
+        # 1. Grundregel: zeitlich nah beieinander
+        if time_diff < threshold:
+            # 2. Nicht gruppieren, wenn vorheriger Text mit Satzzeichen endet (außer Komma/Bindestrich)
+            if prev_text.endswith(('.', '!', '?')):
+                should_group = False
+            # 3. Nicht gruppieren, wenn aktueller Text mit Großbuchstabe beginnt (neuer Vers/Satz)
+            elif text[0].isupper() and prev_text and prev_text[-1] in '.!?':
+                should_group = False
+            else:
+                # Standard: gruppiere wenn zeitlich nah
+                should_group = True
         
         if should_group:
             current_group.append((time, text))
         else:
-            # Gruppe abschließen
+            # Gruppe abschließen - direkt concatenieren, nicht mit Leerzeichen!
             combined_text = ''.join([t for _, t in current_group])
-            grouped.append((current_time, combined_text))
+            if combined_text.strip():
+                grouped.append((current_time, combined_text))
             
             # Neue Gruppe starten
             current_group = [(time, text)]
@@ -209,7 +220,8 @@ def group_syllables_by_time(events, threshold=TIME_THRESHOLD):
     # Letzte Gruppe hinzufügen
     if current_group:
         combined_text = ''.join([t for _, t in current_group])
-        grouped.append((current_time, combined_text))
+        if combined_text.strip():
+            grouped.append((current_time, combined_text))
     
     grouped_count = len(grouped)
     reduction = ((original_count - grouped_count) / original_count * 100) if original_count > 0 else 0
@@ -220,7 +232,7 @@ def group_syllables_by_time(events, threshold=TIME_THRESHOLD):
 
 def correct_with_llm(events):
     """
-    Verwendet OpenAI API um Silbentrennung intelligent zu korrigieren.
+    Verwendet OpenAI API um Liedtexte intelligenter zusammenzufassen.
     
     Args:
         events: Liste von (time, text) Tupeln
@@ -240,11 +252,11 @@ def correct_with_llm(events):
         with open(prompt_path, "r", encoding="utf-8") as f:
             prompt_template = f.read()
         
-        # Erstelle Input-Text mit Pipe-Separatoren
-        input_text = "|".join([text.strip() for _, text in events if text.strip()])
+        # Erstelle Input-Text mit LRC-Format (mit Timecodes)
+        input_text = "\n".join([f"{format_lrc_time(time)}{text.strip()}" for time, text in events if text.strip()])
         
         logger.info(f"Sende {len(events)} Einträge an OpenAI...")
-        logger.debug(f"Input-Text (erste 200 Zeichen): {input_text[:200]}...")
+        logger.debug(f"Input-Text (erste 300 Zeichen):\n{input_text[:300]}...")
         
         client = OpenAI(api_key=OPENAI_API_KEY)
         
@@ -260,22 +272,29 @@ def correct_with_llm(events):
         
         corrected_text = response.choices[0].message.content.strip()
         logger.info(f"LLM-Antwort erhalten. Tokens verwendet: {response.usage.total_tokens}")
-        logger.debug(f"Korrigierter Text (erste 200 Zeichen): {corrected_text[:200]}...")
+        logger.debug(f"Korrigierter Text (erste 300 Zeichen):\n{corrected_text[:300]}...")
         
-        # Teile korrigierten Text wieder auf
-        corrected_parts = [part.strip() for part in corrected_text.split("|") if part.strip()]
+        # Parse die LRC-Ausgabe - Trennung mit "|"
+        corrected_lines = [line.strip() for line in corrected_text.split("|") if line.strip()]
         
-        # Ordne korrigierte Texte den Timestamps zu
+        # Parse jede Zeile um Timecode und Text zu extrahieren
         result = []
-        for i, (time, _) in enumerate(events):
-            if i < len(corrected_parts):
-                result.append((time, corrected_parts[i]))
+        for line in corrected_lines:
+            # Format: [MM:SS.HH]text
+            match = re.match(r'\[(\d{2}):(\d{2})\.(\d{2})\](.*)', line)
+            if match:
+                m, s, hs, text = match.groups()
+                time_seconds = int(m) * 60 + int(s) + int(hs) / 100.0
+                result.append((time_seconds, text.strip()))
             else:
-                # Fallback: behalte Original
-                result.append((time, events[i][1]))
+                logger.warning(f"Konnte Zeile nicht parsen: {line}")
         
-        logger.info(f"LLM-Korrektur abgeschlossen: {len(events)} → {len(result)} Einträge")
-        return result
+        if result:
+            logger.info(f"LLM-Korrektur abgeschlossen: {len(events)} → {len(result)} Einträge")
+            return result
+        else:
+            logger.warning("LLM-Parsing fehlgeschlagen, nutze Original")
+            return events
         
     except FileNotFoundError:
         logger.error(f"Prompt-Datei nicht gefunden: {prompt_path}")
@@ -350,18 +369,31 @@ def midi_to_lrc(midi_path: Path, lrc_path: Path):
         # Beginnt mit Control-Präfix = Steuerzeichen (egal was danach kommt)
         for prefix in control_prefixes:
             if clean.startswith(prefix):
-                return False
+                # Auch wenn danach Text folgt - wenn zu viele Präfixe, sind es Steuerzeichen
+                # Zähle wie oft der Präfix vorkommt
+                if clean.count(prefix) >= 2:
+                    return False
         
-        # Enthält mindestens 2 Kleinbuchstaben = wahrscheinlich echter Text
-        lowercase_count = sum(1 for c in clean if c.islower())
-        if lowercase_count >= 2:
+        # Prüfe ob Text nur aus kurzen Fragmenten besteht (Steuerzeichen)
+        # z.B. "CL CsP CL @" sind nur 1-3 Zeichen pro Fragment
+        import re
+        fragments = re.split(r'[\s\-\~@]+', clean)
+        short_fragments = [f for f in fragments if f and len(f) <= 3]
+        long_fragments = [f for f in fragments if f and len(f) > 3]
+        
+        # Wenn 80%+ kurze Fragmente und wenige lange = Steuerzeichen
+        if len(short_fragments) > 0 and len(long_fragments) == 0:
+            return False
+        
+        # Enthält mindestens 1 Wort mit 4+ Zeichen UND Kleinbuchstaben = echter Text
+        has_real_word = any(len(f) >= 4 and any(c.islower() for c in f) for f in fragments)
+        if has_real_word:
             return True
         
-        # Längerer Text mit Leerzeichen (z.B. mehrere Wörter) = echter Text
-        if ' ' in clean and len(clean) >= 5:
-            alpha_count = sum(1 for c in clean if c.isalpha())
-            if alpha_count >= 4:
-                return True
+        # Enthält mehrere Wörter mit Kleinbuchstaben = echter Text (z.B. "der Sonne")
+        lowercase_count = sum(1 for c in clean if c.islower())
+        if lowercase_count >= 3 and ' ' in clean:
+            return True
         
         return False
     
