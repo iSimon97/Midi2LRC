@@ -1,1 +1,3 @@
 mido
+python-dotenv
+openai

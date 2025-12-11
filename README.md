@@ -66,9 +66,35 @@ Midi2LRC/
     └── launch.json      # VS Code Debug-Konfiguration
 ```
 
+## ⚙️ Konfiguration
+
+### Silben-Gruppierung
+
+Das Tool verwendet einen intelligenten Hybrid-Ansatz:
+
+1. **Zeitbasierte Gruppierung** (automatisch): Silben die < 0.5s auseinander liegen werden zusammengefügt
+2. **LLM-Korrektur** (optional): OpenAI GPT für intelligente Nachbearbeitung
+
+### OpenAI API Setup (optional)
+
+Für beste Ergebnisse kannst du die LLM-Korrektur aktivieren:
+
+1. Erstelle eine `.env` Datei (Vorlage: `.env.example`)
+2. Füge deinen OpenAI API Key ein:
+   ```env
+   OPENAI_API_KEY=sk-...
+   USE_LLM_CORRECTION=true
+   OPENAI_MODEL=gpt-4o-mini
+   ```
+3. API Key erstellen: https://platform.openai.com/api-keys
+
+**Hinweis**: Die zeitbasierte Gruppierung allein liefert bereits sehr gute Ergebnisse!
+
 ## 📦 Abhängigkeiten
 
 - `mido` - MIDI-Datei Parser
+- `python-dotenv` - Umgebungsvariablen
+- `openai` - OpenAI API Client (optional)
 
 ## 📄 Lizenz
 
