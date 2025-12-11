@@ -82,6 +82,33 @@ def ticks_to_seconds(tick, tempo_map, ticks_per_beat):
     return seconds
 
 
+def is_control_character(text):
+    """
+    Prüft, ob Text nur Steuerzeichen oder unerwünschte Zeichen enthält.
+    """
+    if not text or not text.strip():
+        return True
+    
+    cleaned = text.strip()
+    
+    # Filter für "---" Trennzeichen (oft am Anfang/Ende)
+    if cleaned.startswith('---') or cleaned == '---':
+        return True
+    
+    # Filter für typische MIDI-Steuerzeichen - alle Varianten
+    control_prefixes = ['CL', 'CsP', 'C@', 'CLX', 'CLZ', 'CP']
+    for prefix in control_prefixes:
+        if cleaned.startswith(prefix):
+            # Entferne Präfix und schaue was übrig bleibt
+            rest = cleaned[len(prefix):]
+            # Wenn nach dem Präfix keine Buchstaben oder Ziffern sind, ist es ein Steuerzeichen
+            has_alphanumeric = any(c.isalnum() for c in rest)
+            if not has_alphanumeric:
+                return True
+    
+    return False
+
+
 def extract_lyrics_from_track(track, tempo_map, ticks_per_beat):
     """
     Extrahiert Text aus einer Spur:
@@ -111,7 +138,7 @@ def extract_lyrics_from_track(track, tempo_map, ticks_per_beat):
             except Exception:
                 pass
 
-        if text:
+        if text and not is_control_character(text):
             t_sec = ticks_to_seconds(abs_tick, tempo_map, ticks_per_beat)
             events.append((t_sec, text))
 
@@ -300,16 +327,79 @@ def midi_to_lrc(midi_path: Path, lrc_path: Path):
     else:
         logger.info("LLM-Korrektur deaktiviert (USE_LLM_CORRECTION=false)")
     
+    # Filtere Steuerzeichen und bereite Events für die Ausgabe vor
+    logger.info("=" * 60)
+    logger.info("Filtere Steuerzeichen...")
+    
+    # Finde den Index des ersten sinnvollen Textes
+    first_real_text_idx = 0
+    control_prefixes = ['CL', 'CsP', 'C@', 'CLX', 'CLZ', 'CP']
+    
+    def is_real_text(text):
+        """Prüft ob Text echte Wörter/Lyrics enthält"""
+        clean = text.strip()
+        
+        # Zu kurz = kein echter Text
+        if len(clean) < 2:
+            return False
+        
+        # Beginnt mit "---" = Steuerzeichen
+        if clean.startswith('---'):
+            return False
+        
+        # Beginnt mit Control-Präfix = Steuerzeichen (egal was danach kommt)
+        for prefix in control_prefixes:
+            if clean.startswith(prefix):
+                return False
+        
+        # Enthält mindestens 2 Kleinbuchstaben = wahrscheinlich echter Text
+        lowercase_count = sum(1 for c in clean if c.islower())
+        if lowercase_count >= 2:
+            return True
+        
+        # Längerer Text mit Leerzeichen (z.B. mehrere Wörter) = echter Text
+        if ' ' in clean and len(clean) >= 5:
+            alpha_count = sum(1 for c in clean if c.isalpha())
+            if alpha_count >= 4:
+                return True
+        
+        return False
+    
+    for i, (_, text) in enumerate(events):
+        if is_real_text(text):
+            first_real_text_idx = i
+            logger.info(f"Erster echter Text bei Index {i}: '{text.strip()[:50]}...'")
+            break
+    
+    # Nur Events ab dem ersten echten Text behalten
+    filtered_events = events[first_real_text_idx:]
+    logger.info(f"Steuerzeichen gefiltert: {len(events)} → {len(filtered_events)} Einträge")
+    
     # LRC-Datei schreiben
     logger.info("=" * 60)
     logger.info("Schreibe LRC-Datei...")
+    written_lines = 0
     with open(lrc_path, "w", encoding="utf-8") as f:
-        for t_sec, text in events:
+        for t_sec, text in filtered_events:
+            # Überspringe leere oder nur aus Whitespace bestehende Texte
+            if not text or not text.strip():
+                continue
+            
+            # Entferne Zeilenumbrüche aus dem Text - jede Zeile muss einen Timecode haben
+            # Ersetze Zeilenumbrüche durch Leerzeichen
+            clean_text = text.replace('\n', ' ').replace('\r', ' ')
+            # Entferne mehrfache Leerzeichen
+            clean_text = ' '.join(clean_text.split())
+            
+            if not clean_text:
+                continue
+            
             timestamp = format_lrc_time(t_sec)
-            f.write(f"{timestamp}{text}\n")
+            f.write(f"{timestamp}{clean_text}\n")
+            written_lines += 1
 
     logger.info(f"✅ Fertig! LRC gespeichert als: {lrc_path}")
-    logger.info(f"Finale Anzahl Zeilen: {len(events)}")
+    logger.info(f"Finale Anzahl Zeilen: {written_lines}")
 
 
 if __name__ == "__main__":
