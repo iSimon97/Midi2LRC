@@ -9,6 +9,7 @@ import {
   MidiTrackInfo,
   MidiFileInfo
 } from "./utils/midiParser";
+import { generateAbletonFile, downloadAbletonFile } from "./utils/abletonGenerator";
 
 const App: FC = () => {
   const [fileName, setFileName] = useState("");
@@ -90,6 +91,24 @@ const App: FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleAbletonDownload = async () => {
+    if (lrcLines.length === 0) return;
+
+    try {
+      // Konvertiere LrcLines zu LineInfo für Ableton
+      const lineInfos = lrcLines.map((line, i, arr) => ({
+        start: line.time,
+        end: arr[i + 1]?.time ?? line.time + 5,
+        text: line.text,
+      }));
+
+      const blob = await generateAbletonFile(fileName || "Lyrics", bpm, lineInfos);
+      downloadAbletonFile(blob, fileName || "Lyrics");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fehler beim Erstellen der Ableton-Datei");
+    }
   };
 
   const handleReset = () => {
@@ -245,14 +264,23 @@ const App: FC = () => {
               />
             </div>
 
-            {/* Download Button */}
-            <button
-              onClick={handleDownload}
-              className="flex items-center justify-center gap-3 rounded-xl bg-accent py-4 text-lg font-semibold text-black transition hover:bg-accent-hover"
-            >
-              <Download className="h-5 w-5" />
-              LRC-Datei herunterladen
-            </button>
+            {/* Download Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={handleDownload}
+                className="flex flex-1 items-center justify-center gap-3 rounded-xl bg-accent py-4 text-lg font-semibold text-black transition hover:bg-accent-hover"
+              >
+                <Download className="h-5 w-5" />
+                LRC-Datei
+              </button>
+              <button
+                onClick={handleAbletonDownload}
+                className="flex flex-1 items-center justify-center gap-3 rounded-xl bg-orange-500 py-4 text-lg font-semibold text-black transition hover:bg-orange-600"
+              >
+                <Download className="h-5 w-5" />
+                Ableton Live (.als)
+              </button>
+            </div>
           </div>
         )}
       </main>
