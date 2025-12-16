@@ -1,6 +1,8 @@
 # MIDI2LRC
 
-A simple web app to convert MIDI files with embedded lyrics to LRC format.
+**[https://isimon97.github.io/Midi2LRC/](https://isimon97.github.io/Midi2LRC/)**
+
+A simple web app to convert MIDI files with embedded lyrics to LRC format or Ableton Live projects.
 
 ## Why?
 

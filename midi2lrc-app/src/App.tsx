@@ -1,5 +1,5 @@
 import { useCallback, useState, FC } from "react";
-import { Download, Upload, Music, FileText, GitHub, RefreshCw, ChevronDown } from "react-feather";
+import { Download, Upload, Music, FileText, GitHub, RefreshCw, ChevronDown, Globe } from "react-feather";
 import { useDropzone } from "react-dropzone";
 import { 
   parseMidiFile, 
@@ -9,6 +9,7 @@ import {
   MidiTrackInfo
 } from "./utils/midiParser";
 import { generateAbletonFile, downloadAbletonFile } from "./utils/abletonGenerator";
+import { translations, Language } from "./i18n/translations";
 
 const App: FC = () => {
   const [fileName, setFileName] = useState("");
@@ -21,6 +22,10 @@ const App: FC = () => {
   const [tracks, setTracks] = useState<MidiTrackInfo[]>([]);
   const [selectedTrackIndex, setSelectedTrackIndex] = useState<number>(0);
   const [bpm, setBpm] = useState<number>(0);
+  
+  // Sprache
+  const [lang, setLang] = useState<Language>("de");
+  const t = translations[lang];
 
   const processTrack = (trackIndex: number) => {
     try {
@@ -29,7 +34,7 @@ const App: FC = () => {
       setLrcContent(result.lrcText);
       setSelectedTrackIndex(trackIndex);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Fehler beim Extrahieren der Lyrics");
+      setError(err instanceof Error ? err.message : t.errorExtract);
     }
   };
 
@@ -37,7 +42,7 @@ const App: FC = () => {
     const file = acceptedFiles[0];
 
     if (!file) {
-      setError("Keine gültige Datei gefunden");
+      setError(t.errorNoFile);
       return;
     }
 
@@ -63,11 +68,11 @@ const App: FC = () => {
       setLrcLines(result.lines);
       setLrcContent(result.lrcText);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Fehler beim Parsen der MIDI-Datei");
+      setError(err instanceof Error ? err.message : t.errorParse);
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [t]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -106,7 +111,7 @@ const App: FC = () => {
       const blob = await generateAbletonFile(fileName || "Lyrics", bpm, lineInfos);
       downloadAbletonFile(blob, fileName || "Lyrics");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Fehler beim Erstellen der Ableton-Datei");
+      setError(err instanceof Error ? err.message : t.errorAbleton);
     }
   };
 
@@ -129,14 +134,25 @@ const App: FC = () => {
             <Music className="h-8 w-8 text-accent" />
             <span className="text-xl font-bold">MIDI2LRC</span>
           </div>
-          <a
-            href="https://github.com/iSimon97"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-400 transition hover:text-white"
-          >
-            <GitHub className="h-6 w-6" />
-          </a>
+          <div className="flex items-center gap-4">
+            {/* Language Switcher */}
+            <button
+              onClick={() => setLang(lang === "de" ? "en" : "de")}
+              className="flex items-center gap-2 rounded-lg bg-background-light px-3 py-2 text-sm text-gray-400 transition hover:bg-background-hover hover:text-white"
+              title={t.switchLanguage}
+            >
+              <Globe className="h-4 w-4" />
+              <span className="font-medium">{lang.toUpperCase()}</span>
+            </button>
+            <a
+              href="https://github.com/iSimon97"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 transition hover:text-white"
+            >
+              <GitHub className="h-6 w-6" />
+            </a>
+          </div>
         </div>
       </header>
 
@@ -144,11 +160,10 @@ const App: FC = () => {
       <main className="mx-auto flex w-full max-w-4xl flex-grow flex-col px-4 py-10">
         <div className="mb-8 text-center">
           <h1 className="mb-4 text-4xl font-bold">
-            MIDI Lyrics zu LRC Konverter
+            {t.title}
           </h1>
           <p className="text-gray-400">
-            Konvertiere MIDI-Dateien mit Lyrics (z.B. Karaoke-Files) in das LRC-Format
-            für Lyrics-Anzeige in Musik-Apps.
+            {t.subtitle}
           </p>
         </div>
 
@@ -170,19 +185,19 @@ const App: FC = () => {
             {isProcessing ? (
               <div className="flex flex-col items-center">
                 <RefreshCw className="mb-4 h-16 w-16 animate-spin text-accent" />
-                <p className="text-lg">Verarbeite MIDI-Datei...</p>
+                <p className="text-lg">{t.processing}</p>
               </div>
             ) : (
               <>
                 <Upload className={`mb-4 h-16 w-16 ${isDragActive ? "text-accent" : "text-gray-500"}`} />
                 <p className="mb-2 text-lg">
                   {isDragActive 
-                    ? "MIDI-Datei hier ablegen..." 
-                    : "MIDI-Datei hierher ziehen oder klicken"
+                    ? t.dropHere 
+                    : t.dragOrClick
                   }
                 </p>
                 <p className="text-sm text-gray-500">
-                  Unterstützt .mid und .midi Dateien mit eingebetteten Lyrics
+                  {t.supportedFormats}
                 </p>
               </>
             )}
@@ -203,7 +218,7 @@ const App: FC = () => {
                 <div>
                   <p className="font-medium">{fileName}.lrc</p>
                   <p className="text-sm text-gray-400">
-                    {lrcLines.length} Zeilen extrahiert
+                    {lrcLines.length} {t.linesExtracted}
                   </p>
                 </div>
               </div>
@@ -217,7 +232,7 @@ const App: FC = () => {
                   onClick={handleReset}
                   className="rounded-lg px-4 py-2 text-gray-400 transition hover:bg-background-hover hover:text-white"
                 >
-                  Neue Datei
+                  {t.newFile}
                 </button>
               </div>
             </div>
@@ -225,7 +240,7 @@ const App: FC = () => {
             {/* Track Selection */}
             <div className="rounded-lg bg-background-light p-4">
               <label className="mb-2 block text-sm text-gray-400">
-                Lyrics-Track auswählen
+                {t.selectTrack}
               </label>
               <div className="relative">
                 <select
@@ -238,7 +253,7 @@ const App: FC = () => {
                       {track.name}
                       {track.hasLyrics 
                         ? ` (${track.lyricsCount} Lyrics)` 
-                        : " (keine Lyrics)"}
+                        : ` (${t.noLyrics})`}
                     </option>
                   ))}
                 </select>
@@ -246,7 +261,7 @@ const App: FC = () => {
               </div>
               {tracks.length > 0 && (
                 <p className="mt-2 text-xs text-gray-500">
-                  {tracks.filter(t => t.hasLyrics).length} von {tracks.length} Tracks enthalten Lyrics
+                  {tracks.filter(t => t.hasLyrics).length} {t.tracksWithLyrics.replace("{total}", tracks.length.toString())}
                 </p>
               )}
             </div>
@@ -254,7 +269,7 @@ const App: FC = () => {
             {/* Preview */}
             <div className="relative">
               <div className="absolute right-3 top-3 rounded bg-background px-2 py-1 text-xs text-gray-500">
-                Vorschau
+                {t.preview}
               </div>
               <textarea
                 readOnly
@@ -270,14 +285,14 @@ const App: FC = () => {
                 className="flex flex-1 items-center justify-center gap-3 rounded-xl bg-accent py-4 text-lg font-semibold text-black transition hover:bg-accent-hover"
               >
                 <Download className="h-5 w-5" />
-                LRC-Datei
+                {t.downloadLrc}
               </button>
               <button
                 onClick={handleAbletonDownload}
                 className="flex flex-1 items-center justify-center gap-3 rounded-xl bg-orange-500 py-4 text-lg font-semibold text-black transition hover:bg-orange-600"
               >
                 <Download className="h-5 w-5" />
-                Ableton Live (.als)
+                {t.downloadAbleton}
               </button>
             </div>
           </div>
@@ -287,7 +302,7 @@ const App: FC = () => {
       {/* Footer */}
       <footer className="border-t border-background-light py-6">
         <div className="mx-auto max-w-4xl px-4 text-center text-sm text-gray-500">
-          <p>MIDI2LRC – Konvertiere MIDI Lyrics zu LRC Format</p>
+          <p>{t.footer}</p>
         </div>
       </footer>
     </div>
