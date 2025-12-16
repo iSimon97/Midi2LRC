@@ -1,4 +1,4 @@
-import React, { useCallback, useState, FC } from "react";
+import { useCallback, useState, FC } from "react";
 import { Download, Upload, Music, FileText, GitHub, RefreshCw, ChevronDown } from "react-feather";
 import { useDropzone } from "react-dropzone";
 import { 
@@ -6,8 +6,7 @@ import {
   extractLyricsFromTrack, 
   findDefaultTrackIndex,
   LrcLine, 
-  MidiTrackInfo,
-  MidiFileInfo
+  MidiTrackInfo
 } from "./utils/midiParser";
 import { generateAbletonFile, downloadAbletonFile } from "./utils/abletonGenerator";
 

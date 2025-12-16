@@ -31,25 +31,6 @@ function setAttribute(el: Element, tag: string, attr: string, value: string): vo
 }
 
 /**
- * Aktualisiert alle Id-Attribute in einem Element und seinen Kindern
- */
-function updateIds(element: Element, startId: number): number {
-  let currentId = startId;
-  
-  // Aktualisiere die Id des Elements selbst falls vorhanden
-  if (element.hasAttribute("Id")) {
-    element.setAttribute("Id", String(currentId++));
-  }
-  
-  // Rekursiv alle Kinder durchgehen
-  for (const child of Array.from(element.children)) {
-    currentId = updateIds(child as Element, currentId);
-  }
-  
-  return currentId;
-}
-
-/**
  * Generiert eine Ableton Live .als Datei mit Lyrics-Clips
  */
 export async function generateAbletonFile(
@@ -116,7 +97,7 @@ export async function generateAbletonFile(
   let clipId = 20000;
 
   // Clips erstellen
-  for (const [index, line] of processedLines.entries()) {
+  for (const line of processedLines) {
     if (!line.text) continue;
 
     const startTime = timeToBeats(line.start, bpm);
