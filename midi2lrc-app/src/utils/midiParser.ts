@@ -379,7 +379,7 @@ export function extractLyricsFromTrack(trackIndex: number): { lines: LrcLine[]; 
  * Legacy-Funktion für Kompatibilität
  */
 export function parseMidiToLrc(buffer: ArrayBuffer): { lines: LrcLine[]; lrcText: string } {
-  const tracks = parseMidiFile(buffer);
-  const defaultTrack = findDefaultTrackIndex(tracks);
+  const midiInfo = parseMidiFile(buffer);
+  const defaultTrack = findDefaultTrackIndex(midiInfo.tracks);
   return extractLyricsFromTrack(defaultTrack);
 }
