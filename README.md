@@ -10,6 +10,8 @@ I needed lrc files from midi lyrics. So i've used ai shit to vibe code something
 
 The main reason i built this is to use it with [AbleSet](https://ableset.app/) which is a really good software for live performance with Ableton Live. It can display synced lyrics on stage monitors, but needs LRC files for that. Most karaoke MIDI files have lyrics embedded, so this tool extracts them.
 
+After reaching out to the developer of AbleSet, I got some helpful tips on how to generate Ableton Live project files directly with lyrics clips. So I vibe coded that feature as well – you can now export directly to `.als` files that you can drag into your Ableton projects!
+
 ## Features
 
 - Drag and drop MIDI files
