@@ -27,6 +27,11 @@ interface MidiTrack {
   name: string;
 }
 
+interface TempoEvent {
+  tick: number;
+  tempo: number; // in microseconds per beat
+}
+
 interface ParsedMidiFile {
   header: {
     format: number;
@@ -34,7 +39,8 @@ interface ParsedMidiFile {
     ticksPerBeat: number;
   };
   tracks: MidiTrack[];
-  tempo: number;
+  tempo: number; // erstes/initiales Tempo
+  tempoEvents: TempoEvent[]; // alle Tempo-Changes
 }
 
 // Globaler Cache für die geparste MIDI-Datei
@@ -82,10 +88,43 @@ function decodeText(data: number[]): string {
 }
 
 /**
- * Konvertiert Ticks zu Sekunden
+ * Konvertiert Ticks zu Sekunden unter Berücksichtigung aller Tempo-Änderungen
  */
-function ticksToSeconds(ticks: number, ticksPerBeat: number, tempo: number): number {
-  return (ticks * tempo) / (ticksPerBeat * 1000000);
+function ticksToSecondsWithTempoChanges(
+  targetTick: number, 
+  ticksPerBeat: number, 
+  tempoEvents: TempoEvent[]
+): number {
+  if (tempoEvents.length === 0) {
+    // Kein Tempo definiert, nutze Default 120 BPM
+    return (targetTick * 500000) / (ticksPerBeat * 1000000);
+  }
+
+  let seconds = 0;
+  let lastTick = 0;
+  let currentTempo = tempoEvents[0]?.tick === 0 ? tempoEvents[0].tempo : 500000;
+
+  for (const tempoEvent of tempoEvents) {
+    if (tempoEvent.tick >= targetTick) {
+      // Ziel liegt vor diesem Tempo-Change
+      break;
+    }
+
+    if (tempoEvent.tick > lastTick) {
+      // Berechne Zeit bis zu diesem Tempo-Change
+      const tickDelta = tempoEvent.tick - lastTick;
+      seconds += (tickDelta * currentTempo) / (ticksPerBeat * 1000000);
+      lastTick = tempoEvent.tick;
+    }
+
+    currentTempo = tempoEvent.tempo;
+  }
+
+  // Rest bis zum Ziel-Tick mit aktuellem Tempo
+  const remainingTicks = targetTick - lastTick;
+  seconds += (remainingTicks * currentTempo) / (ticksPerBeat * 1000000);
+
+  return seconds;
 }
 
 /**
@@ -128,7 +167,9 @@ function parseMidiBuffer(buffer: ArrayBuffer): ParsedMidiFile {
 
   // Tracks lesen
   const tracks: MidiTrack[] = [];
-  let globalTempo = 500000; // Default: 120 BPM
+  const tempoEvents: TempoEvent[] = [];
+  let firstTempo = 500000; // Default: 120 BPM
+  let firstTempoFound = false;
 
   for (let i = 0; i < numTracks; i++) {
     const trackChunk = readString(view, offset, 4);
@@ -143,10 +184,12 @@ function parseMidiBuffer(buffer: ArrayBuffer): ParsedMidiFile {
     const trackEnd = offset + trackLength;
     const events: MidiEvent[] = [];
     let trackName = `Track ${i}`;
+    let trackAbsoluteTick = 0; // Absolute Zeit für Tempo-Events
 
     while (offset < trackEnd) {
       const deltaTime = readVariableLength(view, offset);
       offset += deltaTime.bytesRead;
+      trackAbsoluteTick += deltaTime.value;
 
       const eventByte = view.getUint8(offset);
       offset++;
@@ -172,7 +215,14 @@ function parseMidiBuffer(buffer: ArrayBuffer): ParsedMidiFile {
 
         // Tempo (Meta Event 0x51)
         if (metaType === 0x51 && data.length >= 3) {
-          globalTempo = (data[0] << 16) | (data[1] << 8) | data[2];
+          const tempo = (data[0] << 16) | (data[1] << 8) | data[2];
+          tempoEvents.push({ tick: trackAbsoluteTick, tempo });
+          
+          // Erstes Tempo merken für BPM-Anzeige
+          if (!firstTempoFound) {
+            firstTempo = tempo;
+            firstTempoFound = true;
+          }
         }
 
         events.push({
@@ -223,10 +273,14 @@ function parseMidiBuffer(buffer: ArrayBuffer): ParsedMidiFile {
     tracks.push({ events, name: trackName });
   }
 
+  // Tempo-Events nach Tick sortieren
+  tempoEvents.sort((a, b) => a.tick - b.tick);
+
   return {
     header: { format, numTracks, ticksPerBeat },
     tracks,
-    tempo: globalTempo,
+    tempo: firstTempo,
+    tempoEvents,
   };
 }
 
@@ -314,12 +368,12 @@ export function extractLyricsFromTrack(trackIndex: number): { lines: LrcLine[]; 
   }
 
   const lines: LrcLine[] = [];
-  let absoluteTime = 0;
+  let absoluteTick = 0;
   let currentLine = "";
-  let lineStartTime: number | null = null;
+  let lineStartTick: number | null = null;
 
   for (const event of track.events) {
-    absoluteTime += event.deltaTime;
+    absoluteTick += event.deltaTime;
 
     // Lyrics Event (0x05)
     if (event.type === 0xff && event.metaType === 0x05 && event.data) {
@@ -333,15 +387,19 @@ export function extractLyricsFromTrack(trackIndex: number): { lines: LrcLine[]; 
       // Zeilenumbruch erkannt
       if (text === "\r" || text === "\n" || text.endsWith("\r") || text.endsWith("\n")) {
         if (text !== "\r" && text !== "\n") {
-          if (lineStartTime === null) {
-            lineStartTime = absoluteTime;
+          if (lineStartTick === null) {
+            lineStartTick = absoluteTick;
           }
           currentLine += text.replace(/[\r\n]/g, "").trimEnd();
         }
 
         // Zeile speichern
         if (currentLine.trim()) {
-          const timeInSeconds = ticksToSeconds(lineStartTime ?? absoluteTime, midi.header.ticksPerBeat, midi.tempo);
+          const timeInSeconds = ticksToSecondsWithTempoChanges(
+            lineStartTick ?? absoluteTick, 
+            midi.header.ticksPerBeat, 
+            midi.tempoEvents
+          );
           lines.push({
             time: timeInSeconds,
             text: currentLine.trim(),
@@ -349,11 +407,11 @@ export function extractLyricsFromTrack(trackIndex: number): { lines: LrcLine[]; 
         }
 
         currentLine = "";
-        lineStartTime = null;
+        lineStartTick = null;
       } else {
         // Startzeit merken
-        if (lineStartTime === null) {
-          lineStartTime = absoluteTime;
+        if (lineStartTick === null) {
+          lineStartTick = absoluteTick;
         }
         currentLine += text;
       }
@@ -362,7 +420,11 @@ export function extractLyricsFromTrack(trackIndex: number): { lines: LrcLine[]; 
 
   // Letzte Zeile
   if (currentLine.trim()) {
-    const timeInSeconds = ticksToSeconds(lineStartTime ?? absoluteTime, midi.header.ticksPerBeat, midi.tempo);
+    const timeInSeconds = ticksToSecondsWithTempoChanges(
+      lineStartTick ?? absoluteTick, 
+      midi.header.ticksPerBeat, 
+      midi.tempoEvents
+    );
     lines.push({
       time: timeInSeconds,
       text: currentLine.trim(),
