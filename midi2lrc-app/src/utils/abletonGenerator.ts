@@ -39,8 +39,9 @@ export async function generateAbletonFile(
   lines: LineInfo[],
   closeGaps = true
 ): Promise<Blob> {
-  // Template laden
-  const response = await fetch("/template.xml");
+  // Template laden (verwende Vite BASE_URL damit GitHub Pages korrekten Pfad findet)
+  const baseUrl = (import.meta as any).env?.BASE_URL ?? '/';
+  const response = await fetch(`${baseUrl}template.xml`);
   const template = await response.text();
 
   if (lines.length === 0) {
